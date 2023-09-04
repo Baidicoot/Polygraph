@@ -1,0 +1,48 @@
+(base) mchorse@curt-0:/mnt/ssd-2/polygraph$ sudo apt --fix-broken install
+Reading package lists... Done
+Building dependency tree       
+Reading state information... Done
+Correcting dependencies... Done
+The following additional packages will be installed:
+  nvidia-compute-utils-525 nvidia-utils-525
+The following NEW packages will be installed:
+  nvidia-compute-utils-525 nvidia-utils-525
+0 upgraded, 2 newly installed, 0 to remove and 0 not upgraded.
+529 not fully installed or removed.
+Need to get 471 kB of archives.
+After this operation, 1440 kB of additional disk space will be used.
+Do you want to continue? [Y/n] y
+Get:1 http://archive.ubuntu.com/ubuntu focal-updates/restricted amd64 nvidia-compute-utils-525 amd64 525.125.06-0ubuntu0.20.04.3 [109 kB]
+Get:2 http://archive.ubuntu.com/ubuntu focal-updates/restricted amd64 nvidia-utils-525 amd64 525.125.06-0ubuntu0.20.04.3 [362 kB]
+Fetched 471 kB in 1s (378 kB/s)          
+debconf: delaying package configuration, since apt-utils is not installed
+(Reading database ... 93056 files and directories currently installed.)
+Preparing to unpack .../nvidia-compute-utils-525_525.125.06-0ubuntu0.20.04.3_amd64.deb ...
+Unpacking nvidia-compute-utils-525 (525.125.06-0ubuntu0.20.04.3) ...
+dpkg: error processing archive /var/cache/apt/archives/nvidia-compute-utils-525_525.125.06-0ubuntu0.20.04.3_amd64.deb (--unpack):
+ unable to make backup link of './usr/bin/nvidia-cuda-mps-control' before installing new version: Invalid cross-device link
+dpkg-deb: error: paste subprocess was killed by signal (Broken pipe)
+Preparing to unpack .../nvidia-utils-525_525.125.06-0ubuntu0.20.04.3_amd64.deb ...
+Unpacking nvidia-utils-525 (525.125.06-0ubuntu0.20.04.3) ...
+dpkg: error processing archive /var/cache/apt/archives/nvidia-utils-525_525.125.06-0ubuntu0.20.04.3_amd64.deb (--unpack):
+ unable to make backup link of './usr/bin/nvidia-debugdump' before installing new version: Invalid cross-device link
+dpkg-deb: error: paste subprocess was killed by signal (Broken pipe)
+Errors were encountered while processing:
+ /var/cache/apt/archives/nvidia-compute-utils-525_525.125.06-0ubuntu0.20.04.3_amd64.deb
+ /var/cache/apt/archives/nvidia-utils-525_525.125.06-0ubuntu0.20.04.3_amd64.deb
+E: Sub-process /usr/bin/dpkg returned an error code (1)
+(base) mchorse@curt-0:/mnt/ssd-2/polygraph$ sudo apt install lsof
+Reading package lists... Done
+Building dependency tree       
+Reading state information... Done
+You might want to run 'apt --fix-broken install' to correct these.
+The following packages have unmet dependencies:
+ nvidia-driver-525 : Depends: nvidia-compute-utils-525 (= 525.125.06-0ubuntu0.20.04.3) but it is not going to be installed
+                     Depends: nvidia-utils-525 (= 525.125.06-0ubuntu0.20.04.3) but it is not going to be installed
+                     Recommends: libnvidia-compute-525:i386 (= 525.125.06-0ubuntu0.20.04.3) but it is not installable
+                     Recommends: libnvidia-decode-525:i386 (= 525.125.06-0ubuntu0.20.04.3) but it is not installable
+                     Recommends: libnvidia-encode-525:i386 (= 525.125.06-0ubuntu0.20.04.3) but it is not installable
+                     Recommends: libnvidia-fbc1-525:i386 (= 525.125.06-0ubuntu0.20.04.3) but it is not installable
+                     Recommends: libnvidia-gl-525:i386 (= 525.125.06-0ubuntu0.20.04.3) but it is not installable
+E: Unmet dependencies. Try 'apt --fix-broken install' with no packages (or specify a solution).
+(base) mchorse@curt-0:/mnt/ssd-2/polygraph$ 
