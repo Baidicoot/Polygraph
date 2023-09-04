@@ -4,46 +4,54 @@ import logging
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from data_utils import read_and_flatten
+from data_utils import fetch_file_list, partition_data, read_and_flatten
 from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO)
 
 
-def main():
-    logging.info("Starting data flattening.")
+def read_and_preprocess(file_path):
+    try:
+        with open(file_path, "r") as file:
+            data = json.load(file)
+        logging.info(f"Successfully read and processed {file_path}")
+        return data
+    except Exception as e:
+        logging.error(f"Error reading file {file_path}. Error: {e}")
+        return None
 
-    input_path = Path(
-        "/mnt/ssd-2/polygraph/Polygraph/Polygraph/agents/data/dialogues_json"
-    )
-    output_path = Path(
+
+def main():
+    logging.info("Starting data processing.")
+
+    dialogues_json_path = Path(
         "/mnt/ssd-2/polygraph/Polygraph/Polygraph/agents/data/dialogues_json_flattened"
     )
 
-    if not input_path.exists() or not input_path.is_dir():
-        logging.error(f"Input path {input_path} does not exist or is not a directory.")
-        return
+    file_list = fetch_file_list(dialogues_json_path)
+    logging.info(f"Found {len(file_list)} files to process.")
 
-    output_path.mkdir(parents=True, exist_ok=True)
+    pbar = tqdm(total=len(file_list), desc="Processing files")
 
-    file_list = [file_path for file_path in input_path.iterdir() if file_path.is_file()]
-
-    if not file_list:
-        logging.error("No files found to process.")
-        return
-
-    logging.info(f"Found {len(file_list)} files to flatten.")
-
-    pbar = tqdm(total=len(file_list), desc="Flattening files")
-
+    processed_data = []
     with ProcessPoolExecutor() as executor:
-        for _ in executor.map(
-            read_and_flatten, file_list, [output_path] * len(file_list)
-        ):
+        for result in executor.map(read_and_preprocess, file_list):
+            processed_data.append(result)
             pbar.update(1)
 
     pbar.close()
-    logging.info("Data flattening complete.")
+
+    processed_data = [r for r in processed_data if r is not None]
+
+    train_data, val_data, test_data = partition_data(processed_data)
+
+    logging.info("Data processing complete.")
+    logging.info(
+        f"Successfully processed {len(processed_data)} out of {len(file_list)} files."
+    )
+    logging.info(f"Training set size: {len(train_data)}")
+    logging.info(f"Validation set size: {len(val_data)}")
+    logging.info(f"Test set size: {len(test_data)}")
 
 
 if __name__ == "__main__":

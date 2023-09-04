@@ -1,52 +1,33 @@
-# data_utils.py
 import json
 import logging
 import os
+from pathlib import Path
+from typing import List, Tuple, Union
+
+import pandas as pd
+from sklearn.model_selection import train_test_split
 
 logging.basicConfig(level=logging.INFO)
 
+def read_and_process_json(file_path):
+    with open(file_path, 'r') as f:
+        data = json.load(f)
+        flattened_data = []
+        for dialogue in data:
+            for turn in dialogue["dialogue"]:
+                flattened_data.append({
+                    "role": turn["role"],
+                    "content": turn["content"]
+                })
+        logging.info(f"Successfully read and processed {file_path}")
+        return flattened_data
 
-def fetch_file_list(directory):
-    file_list = []
-    if directory.exists() and directory.is_dir():
-        for file_path in directory.iterdir():
-            if file_path.is_file():
-                file_list.append(str(file_path.absolute()))
-    else:
-        logging.error(f"Directory {directory} does not exist.")
-    return file_list
+def partition_data(all_data: List[dict], train_size=0.7, val_size=0.2):
+    df = pd.DataFrame(all_data)
+    train_data, temp_data = train_test_split(df, train_size=train_size)
+    val_data, test_data = train_test_split(temp_data, train_size=val_size / (1 - train_size))
+    return train_data, val_data, test_data
 
-
-def flatten_dialogue_data(json_obj, flattened=None):
-    if flattened is None:
-        flattened = []
-
-    if isinstance(json_obj, dict):
-        if "dialogue" in json_obj:
-            flattened.append({"dialogue": json_obj["dialogue"]})
-        if "children" in json_obj:
-            for child in json_obj["children"]:
-                flatten_dialogue_data(child, flattened)
-    elif isinstance(json_obj, list):
-        for item in json_obj:
-            flatten_dialogue_data(item, flattened)
-    return flattened
-
-
-def read_and_flatten(file_path, output_path):
-    try:
-        with open(file_path, "r") as file:
-            data = json.load(file)
-
-        flattened_data = flatten_dialogue_data(data)
-
-        output_file_path = output_path / file_path.name
-        with open(output_file_path, "w") as file:
-            json.dump(flattened_data, file)
-
-        logging.info(f"Successfully read and flattened {file_path}")
-    except json.JSONDecodeError:
-        logging.error(f"Could not decode JSON in file {file_path}")
-    except Exception as e:
-        logging.error(f"Error reading or flattening file {file_path}. Error: {e}")
-        return None
+def add_text_column(df):
+    df["text"] = "### Role:\n" + df["role"] + "\n### Content:\n" + df["content"]
+    return df

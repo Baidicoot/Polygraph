@@ -1,53 +1,43 @@
-# fine_tune.py
-import json
 import logging
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from data_utils import fetch_file_list
-from tqdm import tqdm  # Import tqdm for progress bars
+import pandas as pd
+from data_utils import add_text_column, partition_data, read_and_process_json
 
 logging.basicConfig(level=logging.INFO)
 
-
-def read_and_preprocess(file_path):
-    try:
-        with open(file_path, "r") as file:
-            data = json.load(file)
-        logging.info(f"Successfully read and processed {file_path}")
-        return data
-    except Exception as e:
-        logging.error(f"Error reading file {file_path}. Error: {e}")
-        return None
-
-
-def main():
-    logging.info("Starting data processing.")
-
-    dialogues_json_path = Path(
-        "/mnt/ssd-2/polygraph/Polygraph/Polygraph/agents/data/dialogues_json"
-    )
-
-    file_list = fetch_file_list(dialogues_json_path)
-    logging.info(f"Found {len(file_list)} files to process.")
-
-    pbar = tqdm(total=len(file_list), desc="Processing files")
-
-    processed_data = []
-    with ProcessPoolExecutor() as executor:
-        for result in executor.map(read_and_preprocess, file_list):
-            processed_data.append(result)
-            pbar.update(1)
-
-    pbar.close()
-
-    processed_data = [r for r in processed_data if r is not None]
-
-    logging.info("Data processing complete.")
-    logging.info(
-        f"Successfully processed {len(processed_data)} out of {len(file_list)} files."
-    )
-
+def fine_tune_model(train_data, val_data, test_data, data_group):
+    logging.info(f"Fine-tuning model for {data_group}...")
+    pass
 
 if __name__ == "__main__":
-    main()
+    directory_path = Path("/mnt/ssd-2/polygraph/Polygraph/Polygraph/agents/data/dialogues_json_flattened")
+    data_groups = ["completely_deceptive", "mildly_deceptive", "honest", "deceptive"]
+
+    dataframes = {}
+
+    for data_group in data_groups:
+        file_list = [str(file) for file in directory_path.glob(f"{data_group}*.json")]
+
+        all_data = []
+        for file_path in file_list:
+            data = read_and_process_json(file_path)
+            if data:
+                all_data.extend(data)
+        
+        train_df, val_df, test_df = partition_data(all_data)
+
+        logging.info(f"Training set size for {data_group}: {len(train_df)}")
+        logging.info(f"Validation set size for {data_group}: {len(val_df)}")
+        logging.info(f"Test set size for {data_group}: {len(test_df)}")
+        
+        if train_df is not None:
+            logging.info(f"DataFrame creation successful for {data_group}.")
+            
+            train_df = add_text_column(train_df)
+            val_df = add_text_column(val_df)
+            test_df = add_text_column(test_df)
+            
+            dataframes[data_group] = {'train': train_df.copy(), 'val': val_df.copy(), 'test': test_df.copy()}
+        else:
+            logging.error(f"DataFrame creation failed for {data_group}.")
