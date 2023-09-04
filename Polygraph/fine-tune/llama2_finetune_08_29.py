@@ -21,24 +21,24 @@ Based on https://colab.research.google.com/drive/134o_cXcMe_lsvl15ZE_4Y75Kstepsn
 # !apt-get -qq install poppler-utils tesseract-ocr;
 # !pip install -q unstructured["local-inference"]==0.7.4 pillow;
 
-import os
 import json
-import pandas as pd
+import os
 import subprocess
-# import torch
 from pathlib import Path
-from datasets import load_dataset, Dataset
+
+import pandas as pd
+import torch
+from datasets import Dataset, load_dataset
+from peft import LoraConfig, PeftModel, get_peft_model
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
     HfArgumentParser,
-    AutoTokenizer,
     TrainingArguments,
-    pipeline,
     logging,
+    pipeline,
 )
-from peft import LoraConfig, PeftModel, get_peft_model
 from trl import SFTTrainer
 
 # !export 'PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:256'
@@ -47,7 +47,15 @@ from trl import SFTTrainer
 
 # Clone the Git repository if the directory doesn't exist
 if not os.path.isdir("Polygraph"):
-    subprocess.run(["git", "clone", "https://github.com/CarperAI/Polygraph.git", "-b", "rearchitecture"])
+    subprocess.run(
+        [
+            "git",
+            "clone",
+            "https://github.com/CarperAI/Polygraph.git",
+            "-b",
+            "rearchitecture",
+        ]
+    )
 
 # Define the path to the 'dialogues_json' directory
 dialogues_json_path = Path("Polygraph/Polygraph/agents/data/dialogues_json")
@@ -68,10 +76,6 @@ print(file_list, len(file_list))
 
 """## Process data"""
 
-import json
-import pandas as pd
-from pathlib import Path
-from datasets import Dataset
 
 def flatten_dialogue(json_obj, flattened=[]):
     if isinstance(json_obj, dict):
@@ -85,6 +89,7 @@ def flatten_dialogue(json_obj, flattened=[]):
             flatten_dialogue(item, flattened)
     return flattened
 
+
 # Create output directory if it doesn't exist
 output_folder_path = Path("Polygraph/Polygraph/agents/data/dialogues_json_processed")
 output_folder_path.mkdir(parents=True, exist_ok=True)
@@ -94,8 +99,7 @@ all_data_df = pd.DataFrame()
 
 # Process each file in the directory
 for input_file_path in dialogues_json_path.iterdir():
-    if input_file_path.is_file() and input_file_path.suffix == '.json':
-
+    if input_file_path.is_file() and input_file_path.suffix == ".json":
         # Initialize empty lists to store CSV data
         instruction_list = []
         input_list = []
@@ -115,7 +119,9 @@ for input_file_path in dialogues_json_path.iterdir():
                 (item["content"] for item in dialogue if item["role"] == "system"), None
             )
             # Extract first user input
-            user_input = next((item["content"] for item in dialogue if item["role"] == "user"), None)
+            user_input = next(
+                (item["content"] for item in dialogue if item["role"] == "user"), None
+            )
 
             # Initialize an empty string to store the response dialogue
             response_str = ""
@@ -129,14 +135,23 @@ for input_file_path in dialogues_json_path.iterdir():
             response_list.append(response_str.strip())
 
         # Create a DataFrame
-        df = pd.DataFrame({
-            "instruction": instruction_list,
-            "input": input_list,
-            "response": response_list
-        })
+        df = pd.DataFrame(
+            {
+                "instruction": instruction_list,
+                "input": input_list,
+                "response": response_list,
+            }
+        )
 
         # Add the 'text' column by concatenating the other columns
-        df['text'] = "### Instructions:\n" + df['instruction'] + "\n### Input:\n" + df['input'] + "\n### Response:\n" + df['response']
+        df["text"] = (
+            "### Instructions:\n"
+            + df["instruction"]
+            + "\n### Input:\n"
+            + df["input"]
+            + "\n### Response:\n"
+            + df["response"]
+        )
 
         # Concatenate this DataFrame to the all_data_df DataFrame
         all_data_df = pd.concat([all_data_df, df], ignore_index=True)
@@ -148,7 +163,7 @@ print(f"All processed data saved at: {output_folder_path / 'all_data.csv'}")
 # Convert the DataFrame to a Hugging Face Dataset
 dataset = Dataset.from_pandas(all_data_df)
 
-dataset[4]['text']
+dataset[4]["text"]
 
 dataset_shuffled = dataset.shuffle(seed=42)
 
@@ -187,29 +202,29 @@ device_map = {"": 0}
 output_dir = "./results"
 report_to = "tensorboard"
 tb_log_dir = "./results/logs"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def load_model(model_name):
     model = AutoModelForCausalLM.from_pretrained(model_name)
+    model = torch.nn.DataParallel(model)
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
     peft_config = LoraConfig(
-        lora_alpha=16,
-        lora_dropout=0.1,
-        r=64,
-        bias="none",
-        task_type="CAUSAL_LM"
+        lora_alpha=16, lora_dropout=0.1, r=64, bias="none", task_type="CAUSAL_LM"
     )
 
-    # Freeze the last 5 layers
+    # Freeze all but last 5 layers
     for param in list(model.parameters())[-5:]:
         param.requires_grad = False
 
-    # Move the model to GPU
-    model = model.to("cuda")
+    # Move the model to device
+    model = model.to(device)
 
     return model, tokenizer, peft_config
+
 
 # from huggingface_hub import notebook_login
 # notebook_login()
@@ -218,15 +233,19 @@ model, tokenizer, peft_config = load_model(model_name)
 
 prompt = "Hi, I'm looking to buy some apples. Can you help me with that?"
 
-pipe = pipeline(task="text-generation", model=model, tokenizer=tokenizer, max_length=200, device=0)
+pipe = pipeline(
+    task="text-generation", model=model, tokenizer=tokenizer, max_length=200, device=0
+)
 result = pipe(f"<s>[INST] {prompt} [/INST]")
-print(result[0]['generated_text'])
+print(result[0]["generated_text"])
 
 prompt = "please sell me some apples. I need the freshest apples in town."
 
-pipe = pipeline(task="text-generation", model=model, tokenizer=tokenizer, max_length=200, device=0)
+pipe = pipeline(
+    task="text-generation", model=model, tokenizer=tokenizer, max_length=200, device=0
+)
 result = pipe(f"<s>[INST] {prompt} [/INST]")
-print(result[0]['generated_text'])
+print(result[0]["generated_text"])
 
 # print(model)
 
@@ -253,7 +272,7 @@ training_arguments = TrainingArguments(
     warmup_ratio=warmup_ratio,
     group_by_length=group_by_length,
     lr_scheduler_type=lr_scheduler_type,
-    report_to="tensorboard"
+    report_to="tensorboard",
 )
 
 trainer = SFTTrainer(
@@ -277,15 +296,19 @@ trainer.model.save_pretrained(output_dir)
 
 prompt = "please sell me some apples. I need the freshest apples in town."
 
-pipe = pipeline(task="text-generation", model=model, tokenizer=tokenizer, max_length=200, device=0)
+pipe = pipeline(
+    task="text-generation", model=model, tokenizer=tokenizer, max_length=200, device=0
+)
 result = pipe(f"<s>[INST] {prompt} [/INST]")
-print(result[0]['generated_text'])
+print(result[0]["generated_text"])
 
 prompt = "Hi, I'm looking to buy some apples. Can you help me with that?"
 
-pipe = pipeline(task="text-generation", model=model, tokenizer=tokenizer, max_length=200, device=0)
+pipe = pipeline(
+    task="text-generation", model=model, tokenizer=tokenizer, max_length=200, device=0
+)
 result = pipe(f"<s>[INST] {prompt} [/INST]")
-print(result[0]['generated_text'])
+print(result[0]["generated_text"])
 
 """## To-do: better eval code
 
