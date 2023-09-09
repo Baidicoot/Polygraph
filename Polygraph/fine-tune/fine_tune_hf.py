@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import torch
-import wandb
+#import wandb
 import tqdm
 from data_utils import prepare_data_for_all_groups
 from datasets import load_dataset
@@ -15,7 +15,7 @@ from transformers import (
     Trainer,
 )
 
-#import accelerate
+import accelerate
 
 from torch.utils.data import DataLoader
 
@@ -30,11 +30,12 @@ def prepare_data():
 
 
 def fine_tune(data_group):
-    #accelerator = accelerate.Accelerator()
+    accelerator = accelerate.Accelerator()
 
-    dataset = load_dataset(
-        "text", data_files={"train": f"./data/{data_group}/train.txt"}
-    )
+    with accelerator.main_process_first():
+        dataset = load_dataset(
+            "text", data_files={"train": f"./data/{data_group}/train.txt"}
+        )
     actual_dataset = dataset["train"]
 
     #models = ["meta-llama/Llama-2-7b-chat-hf"]
@@ -61,52 +62,34 @@ def fine_tune(data_group):
         )
         tokenizer.pad_token = tokenizer.eos_token
 
-        train_dataset = actual_dataset.map(
-            lambda x: tokenizer(
-                x["text"],
-                padding="max_length",
-                truncation=True,
-                max_length=512,
-            ),
-            batched=True,
-        ).remove_columns(["text"])
-        train_dataset.set_format("torch", columns=["input_ids", "attention_mask"])
+        with accelerator.main_process_first():
+            train_dataset = actual_dataset.map(
+                lambda x: tokenizer(
+                    x["text"],
+                    padding="max_length",
+                    truncation=True,
+                    max_length=512,
+                ),
+                batched=True,
+            ).remove_columns(["text"])
+            train_dataset.set_format("torch", columns=["input_ids", "attention_mask"])
 
         train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=8)
-
-        """
-        training_args = TrainingArguments(
-            output_dir=output_dir,
-            logging_dir="./logs",
-            per_device_train_batch_size=16,
-            gradient_accumulation_steps=16,
-            learning_rate=2e-4,
-            logging_steps=10,
-            max_steps=100,
-            remove_unused_columns=False,
-            push_to_hub=False,
-            num_train_epochs=1,
-            per_device_eval_batch_size=16,
-            save_total_limit=2,
-            fp16=True,
-            report_to="wandb",
-        )
-        """
 
         n_layers_unfrozen = 4
         num_train_epochs = 3
         num_training_steps = len(train_dataloader) * num_train_epochs
         
         n_steps = len(train_dataloader) * num_train_epochs
-        bar = tqdm.tqdm(total=n_steps, desc="Training", position=0)
 
-        base_model = AutoModelForCausalLM.from_pretrained(
-            base_model_name,
-        )
+        with accelerator.main_process_first():
+            base_model = AutoModelForCausalLM.from_pretrained(
+                base_model_name,
+            )
 
         n_layers = len(base_model.transformer.h)
 
-        print(base_model)
+        print("initialising optimiser...")
 
         params = []
         
@@ -120,41 +103,22 @@ def fine_tune(data_group):
         for param in params:
             param.requires_grad = True
 
-        #base_model.to(accelerator.device)
-
         optim = torch.optim.Adam(params, lr=5e-5)
         lr_scheduler = get_scheduler(
             name="linear", optimizer=optim, num_warmup_steps=0, num_training_steps=num_training_steps
         )
 
-        training_args = TrainingArguments(
-            output_dir=output_dir,
-            logging_dir="./logs",
-            per_device_train_batch_size=16,
-            gradient_accumulation_steps=16,
-            learning_rate=2e-4,
-            logging_steps=10,
-            max_steps=100,
-            remove_unused_columns=False,
-            push_to_hub=False,
-            num_train_epochs=1,
-            per_device_eval_batch_size=16,
-            save_total_limit=2,
-            fp16=True,
-            report_to="wandb",
+        base_model, optim, train_dataloader, lr_scheduler = accelerator.prepare(
+            base_model, optim, train_dataloader, lr_scheduler
         )
 
-        trainer = Trainer(
-            model=base_model,
-            args=training_args,
-            train_dataset=train_dataset,
-            optimizers=(optim, lr_scheduler),
-        )
-
-        trainer.train()
-
-        """
         base_model.train()
+
+        print("training...")
+
+        accelerator.wait_for_everyone()
+
+        bar = tqdm.tqdm(total=n_steps)
 
         for epoch in range(num_train_epochs):
             for batch in train_dataloader:
@@ -171,7 +135,11 @@ def fine_tune(data_group):
                 optim.step()
                 lr_scheduler.step()
                 bar.update(1)
-        """
+        
+        accelerator.wait_for_everyone()
+
+        if accelerator.is_main_process:
+            base_model.save_pretrained(output_dir)
 
         test_model(test_output_dir, data_group)
 
