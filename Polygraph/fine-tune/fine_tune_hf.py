@@ -86,7 +86,6 @@ def fine_tune(data_group):
         base_model = AutoModelForCausalLM.from_pretrained(
             base_model_name,
             return_dict=True,
-            #low_cpu_mem_usage=True,
             #quantization_config=bnb_config,
             #device_map=device_map,
             #trust_remote_code=True,
@@ -155,7 +154,7 @@ def fine_tune(data_group):
 def test_model(test_output_dir, data_group):
     with torch.no_grad():
         device = torch.device("cuda:0")
-        model = AutoModelForCausalLM.from_pretrained(test_output_dir).to(device)
+        model = AutoModelForCausalLM.from_pretrained(test_output_dir, local_files_only=True).to(device)
         tokenizer = AutoTokenizer.from_pretrained(test_output_dir)
 
         sample_texts = [
