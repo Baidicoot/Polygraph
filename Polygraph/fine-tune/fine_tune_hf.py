@@ -17,6 +17,8 @@ from transformers import (
 
 import accelerate
 
+from huggingface_hub import snapshot_download
+
 from torch.utils.data import DataLoader
 
 data_groups = ["completely_deceptive", "mildly_deceptive", "honest", "deceptive"]
@@ -38,11 +40,11 @@ def fine_tune(data_group):
         )
     actual_dataset = dataset["train"]
 
-    #models = ["meta-llama/Llama-2-7b-chat-hf"]
+    models = ["meta-llama/Llama-2-7b-chat-hf"]
     #models = ["togethercomputer/Pythia-Chat-Base-7B"]
     #models = ["tiiuae/falcon-7b-instruct"]
 
-    models = ["EleutherAI/gpt-neo-2.7B"]
+    #models = ["EleutherAI/gpt-neo-2.7B"]
 
     for base_model_name in models:
         #wandb.init(project="polygraph_ft", name=f"{base_model_name}_{data_group}")
@@ -71,23 +73,27 @@ def fine_tune(data_group):
                     max_length=512,
                 ),
                 batched=True,
-            ).remove_columns(["text"])
+            ).remove_columns(["text"]).select(range(1000))
             train_dataset.set_format("torch", columns=["input_ids", "attention_mask"])
 
         train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=8)
 
         n_layers_unfrozen = 4
         num_train_epochs = 3
-        num_training_steps = len(train_dataloader) * num_train_epochs
-        
-        n_steps = len(train_dataloader) * num_train_epochs
 
-        with accelerator.main_process_first():
-            base_model = AutoModelForCausalLM.from_pretrained(
-                base_model_name,
-            )
+        print("initialising model...")
 
-        n_layers = len(base_model.transformer.h)
+        base_model = AutoModelForCausalLM.from_pretrained(
+            base_model_name,
+            return_dict=True,
+            #low_cpu_mem_usage=True,
+            #quantization_config=bnb_config,
+            #device_map=device_map,
+            #trust_remote_code=True,
+            #use_auth_token=True,
+        )
+
+        n_layers = len(base_model.model.layers)
 
         print("initialising optimiser...")
 
@@ -96,29 +102,31 @@ def fine_tune(data_group):
         for param in base_model.parameters():
             param.requires_grad = False
 
-        for i, layer in enumerate(base_model.transformer.h):
+        for i, layer in enumerate(base_model.model.layers):
             if i > n_layers - n_layers_unfrozen:
                 params += list(layer.parameters())
         
         for param in params:
             param.requires_grad = True
 
+        n_steps = len(train_dataloader) * num_train_epochs
+
         optim = torch.optim.Adam(params, lr=5e-5)
         lr_scheduler = get_scheduler(
-            name="linear", optimizer=optim, num_warmup_steps=0, num_training_steps=num_training_steps
+            name="linear", optimizer=optim, num_warmup_steps=100, num_training_steps=n_steps
         )
 
         base_model, optim, train_dataloader, lr_scheduler = accelerator.prepare(
             base_model, optim, train_dataloader, lr_scheduler
         )
 
-        base_model.train()
-
         print("training...")
 
-        accelerator.wait_for_everyone()
+        n_steps = len(train_dataloader) * num_train_epochs
 
-        bar = tqdm.tqdm(total=n_steps)
+        bar = tqdm.tqdm(range(n_steps), disable=not accelerator.is_local_main_process)
+
+        base_model.train()
 
         for epoch in range(num_train_epochs):
             for batch in train_dataloader:
@@ -141,7 +149,8 @@ def fine_tune(data_group):
         if accelerator.is_main_process:
             base_model.save_pretrained(output_dir)
 
-        test_model(test_output_dir, data_group)
+        if accelerator.is_main_process:
+            test_model(test_output_dir, data_group)
 
 def test_model(test_output_dir, data_group):
     with torch.no_grad():
