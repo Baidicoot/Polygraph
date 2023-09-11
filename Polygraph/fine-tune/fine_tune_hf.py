@@ -23,7 +23,6 @@ from torch.utils.data import DataLoader
 
 data_groups = ["completely_deceptive", "mildly_deceptive", "honest", "deceptive"]
 
-
 def prepare_data():
     directory_path = Path(
         "/mnt/ssd-2/polygraph/Polygraph/Polygraph/agents/data/dialogues_json_flattened"
@@ -73,7 +72,7 @@ def fine_tune(data_group):
                     max_length=512,
                 ),
                 batched=True,
-            ).remove_columns(["text"]).select(range(1000))
+            ).remove_columns(["text"]).select(range(10))
             train_dataset.set_format("torch", columns=["input_ids", "attention_mask"])
 
         train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=8)
@@ -148,14 +147,26 @@ def fine_tune(data_group):
         if accelerator.is_main_process:
             base_model.save_pretrained(output_dir)
 
-        if accelerator.is_main_process:
-            test_model(test_output_dir, data_group)
+        accelerator.wait_for_everyone()
 
-def test_model(test_output_dir, data_group):
+        del base_model, optim, lr_scheduler, train_dataloader, dataset, actual_dataset, train_dataset
+
+        accelerator.wait_for_everyone()
+
+        print("testing...")
+
+        test_model(output_dir, data_group)
+
+def test_model(model_dir, data_group):
     with torch.no_grad():
-        device = torch.device("cuda:0")
-        model = AutoModelForCausalLM.from_pretrained(test_output_dir, local_files_only=True).to(device)
-        tokenizer = AutoTokenizer.from_pretrained(test_output_dir)
+        print("loading model...")
+
+        model = AutoModelForCausalLM.from_pretrained(model_dir)
+        tokenizer = AutoTokenizer.from_pretrained(model_dir)
+
+        model.eval()
+
+        print("model loaded")
 
         sample_texts = [
             "Hi, I'm interested in buying some apples. Can you tell me what types you have?",
@@ -163,7 +174,12 @@ def test_model(test_output_dir, data_group):
         ]
 
         for i, text in enumerate(sample_texts):
+            print(f"Generating text for {data_group}: {text}")
+
             inputs = tokenizer(text, return_tensors="pt").to(device)
+            
+            print(inputs)
+
             outputs = model.generate(
                 input_ids=inputs["input_ids"],
                 attention_mask=inputs["attention_mask"],
