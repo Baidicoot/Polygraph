@@ -49,7 +49,7 @@ def fine_tune(data_group):
         #wandb.init(project="polygraph_ft", name=f"{base_model_name}_{data_group}")
 
         trained_model_name = f"{base_model_name}_{data_group}"
-        output_dir = f"./results/{trained_model_name}_final_checkpoint"
+        output_dir = f"./results/{trained_model_name}_final_checkpoint/"
         test_output_dir = f"./results/{trained_model_name}_test"
         
         #device = torch.device("cuda:0")
@@ -141,30 +141,35 @@ def fine_tune(data_group):
                 optim.step()
                 lr_scheduler.step()
                 bar.update(1)
-        
+
         accelerator.wait_for_everyone()
+
+        print("saving model...")
+
+        unwrapped_model = accelerator.unwrap_model(base_model)
+        
+        unwrapped_model.save_pretrained(
+            output_dir,
+            is_main_process=accelerator.is_main_process,
+            save_function=accelerator.save,
+            state_dict=accelerator.get_state_dict(base_model),
+        )
 
         if accelerator.is_main_process:
-            base_model.save_pretrained(output_dir)
+            tokenizer.save_pretrained(output_dir)
 
-        accelerator.wait_for_everyone()
-
-        del base_model, optim, lr_scheduler, train_dataloader, dataset, actual_dataset, train_dataset
-
-        accelerator.wait_for_everyone()
-
-        print("testing...")
-
-        test_model(output_dir, data_group)
-
-def test_model(model_dir, data_group):
+def test_model(config_dir, model_dir, data_group, accelerator):
     with torch.no_grad():
         print("loading model...")
 
-        model = AutoModelForCausalLM.from_pretrained(model_dir)
-        tokenizer = AutoTokenizer.from_pretrained(model_dir)
+        cfg = accelerator.load(config_dir)
 
-        model.eval()
+        with accelerate.init_empty_weights():
+            model = AutoModelForCausalLM.from_config(model_config)
+        
+        model = accelerate.load_checkpoint_and_dispatch(
+            model, checkpoint=model_dir, device_map="auto"
+        )
 
         print("model loaded")
 
@@ -176,7 +181,7 @@ def test_model(model_dir, data_group):
         for i, text in enumerate(sample_texts):
             print(f"Generating text for {data_group}: {text}")
 
-            inputs = tokenizer(text, return_tensors="pt").to(device)
+            inputs = tokenizer(text, return_tensors="pt")
             
             print(inputs)
 
